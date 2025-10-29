@@ -142,6 +142,36 @@
       vars:
         has_new_eip: true
 
+    # TODO: Add test for setting specific public ip address from a pool.
+    # Is there a way to list all non-allocated public ips in the pool? I can't find it in the documentation.
+    # Work-around: Allocating, recording, and then releasing an EIP from a pool to find a free public ip to use.
+    - name: Allocate a new EIP from a pool and record the public ip
+      amazon.aws.ec2_eip:
+        state: present
+        public_ipv4_pool: amazon
+        tags: "{{ eip_test_tags }}"
+      register: eip_to_be_allocated
+
+    - name: Release the EIP from the pool
+      amazon.aws.ec2_eip:
+        state: absent
+        public_ip: "{{ eip_to_be_allocated.public_ip }}"
+
+    - name: Allocate the specific public ip address from the pool
+      amazon.aws.ec2_eip:
+        state: present
+        public_ip: "{{ eip_to_be_allocated.public_ip }}"
+        public_ipv4_pool: amazon
+        tags: "{{ eip_test_tags }}"
+      register: eip_specific
+
+    - ansible.builtin.assert:
+        that:
+          - eip_specific is changed
+          - eip_specific.public_ip == eip_to_be_allocated.public_ip
+          - eip_specific.allocation_id is defined and eip_specific.allocation_id.startswith("eipalloc-")
+
+    - name: Ensure the EIP was allocated
   always:
     - name: Delete EIP
       ansible.builtin.include_tasks: tasks/common.yml

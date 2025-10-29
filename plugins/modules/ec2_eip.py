@@ -207,6 +207,12 @@ EXAMPLES = r"""
     tag_value: "{{ inventory_hostname }}"
     public_ipv4_pool: ipv4pool-ec2-0588c9b75a25d1a02
 
+- name: Allocate a specific public ip address from a pool
+  amazon.aws.ec2_eip:
+    state: present
+    public_ipv4_pool: ipv4pool-ec2-0588c9b75a25d1a02
+    public_ip: 1.2.3.4
+
 - name: create new IP and modify it's reverse DNS record
   amazon.aws.ec2_eip:
     state: present
@@ -353,12 +359,13 @@ def allocate_address(
     reuse_existing_ip_allowed: bool,
     tags: Optional[Dict[str, str]],
     public_ipv4_pool: Optional[bool] = None,
+    public_ip: Optional[str] = None,
 ) -> Tuple[Dict[str, str], bool]:
     """Allocate a new elastic IP address (when needed) and return it"""
     if not domain:
         domain = "standard"
 
-    if reuse_existing_ip_allowed:
+    if reuse_existing_ip_allowed and not public_ip:
         filters = []
         filters.append({"Name": "domain", "Values": [domain]})
 
@@ -373,9 +380,14 @@ def allocate_address(
             unassociated_addresses = [a for a in all_addresses if not a["InstanceId"]]
         if unassociated_addresses:
             return unassociated_addresses[0], False
-
     params = {"Domain": domain}
-    if public_ipv4_pool:
+    if public_ip:
+        filters = [{"Name": "public-ip", "Values": [public_ip]}]
+        addresses = describe_addresses(client, Filters=filters)
+        if addresses and addresses[0]["PublicIp"] == public_ip:
+            return addresses[0], False
+        params["Address"] = public_ip
+    elif public_ipv4_pool:
         params.update({"PublicIpv4Pool": public_ipv4_pool})
     if tags:
         params["TagSpecifications"] = boto3_tag_specifications(tags, types="elastic-ip")
@@ -471,6 +483,7 @@ def ensure_present(
     domain = "vpc" if in_vpc else None
     reuse_existing_ip_allowed = module.params.get("reuse_existing_ip_allowed")
     allow_reassociation = module.params.get("allow_reassociation")
+    public_ip = module.params.get("public_ip")
     public_ipv4_pool = module.params.get("public_ipv4_pool")
     tags = module.params.get("tags")
     purge_tags = module.params.get("purge_tags")
@@ -484,7 +497,7 @@ def ensure_present(
     # Allocate address
     if not address:
         address, changed = allocate_address(
-            client, module.check_mode, search_tags, domain, reuse_existing_ip_allowed, tags, public_ipv4_pool
+            client, module.check_mode, search_tags, domain, reuse_existing_ip_allowed, tags, public_ipv4_pool, public_ip
         )
 
     if domain_name is not None:

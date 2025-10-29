@@ -142,6 +142,8 @@
       vars:
         has_new_eip: true
 
+    # TODO: Add test for setting specific public ip address from a pool.
+
   always:
     - name: Delete EIP
       ansible.builtin.include_tasks: tasks/common.yml
